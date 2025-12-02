@@ -14,6 +14,15 @@ import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IER
  * @dev A simple ERC4626 vault implementation with ownership control
  * The total assets can be set externally by the owner, allowing the owner
  * to withdraw assets while maintaining the vault's accounting.
+ * redeptions happens at the same price that the shares were minted at, until NAV redepmtions is enabled by the owner
+ * after that, redemptions happens at the current NAV price and cannot go back to fair pricing.
+ * the performance fee is calculated as a percentage of the profit and is paid to the treasury.
+ * the performance rate is set by the owner and is a percentage of the profit.
+ * the high water mark is the highest price per share that has been reached.
+ * the treasury is the address that receives the performance fee.
+ * the owner is the address that can set the total assets, enable NAV redemptions, and set the performance rate.
+ * the vault is ERC4626 compliant and can be used as a standard ERC4626 vault.
+ * [[ add info about vesting schedule ]]
  */
 contract SemiRedeemableVault is ERC4626, Ownable {
     using Math for uint256;
@@ -22,15 +31,18 @@ contract SemiRedeemableVault is ERC4626, Ownable {
     uint256 private _totalAssets;
     bool private _redeemsAtNav;
     address private _treasury;
-    uint16 private _performanceRate;
+    uint256 private _performanceRate;
+    uint256 private _vestingStart;
+    uint256 private _vestingEnd;
     uint256 private _highWaterMark;
 
     uint256 private constant BPS = 10_000; // 100%
-    uint16 public constant MAX_PERFORMANCE_RATE = 5000; // 50 %
+    uint16 private constant MAX_PERFORMANCE_RATE = 5000; // 50 %
 
     struct Ledger {
         uint256 assets;
         uint256 shares;
+        uint256 vesting;
     }
 
     mapping(address => Ledger) private _ledger;
@@ -41,7 +53,7 @@ contract SemiRedeemableVault is ERC4626, Ownable {
     */
 
     event AssetsTaken(uint256 assets);
-    event TotalAssetsUpdated(uint256 newTotalAssets);
+    event TotalAssetsUpdated(uint256 newTotalAssets, uint256 performanceFee);
     event RedeemsAtNavEnabled();
 
     /* ========================================================================
@@ -51,8 +63,9 @@ contract SemiRedeemableVault is ERC4626, Ownable {
 
     error InvalidPerformanceRate(uint16 performanceRate);
     error InvalidTreasury(address treasury);
-    error InvalidOwner(address owner);
     error InvalidDecimals(uint8 sharesDecimals, uint8 assetsDecimals);
+    error InvalidVestingSchedule(uint256 currentTime, uint256 vestingStart, uint256 vestingEnd);
+    error VestingAmountNotRedeemable(address owner, uint256 shares, uint256 availableShares);
 
     // ========================================================================
     // =============================== Constructor ============================
@@ -64,7 +77,9 @@ contract SemiRedeemableVault is ERC4626, Ownable {
         string memory symbol_,
         address owner_,
         address treasury_,
-        uint16 performanceRate_
+        uint16 performanceRate_,
+        uint256 vestingStart_,
+        uint256 vestingEnd_
     ) ERC20(name_, symbol_) ERC4626(asset_) Ownable(owner_) {
         
         if (performanceRate_ > MAX_PERFORMANCE_RATE) {
@@ -75,18 +90,21 @@ contract SemiRedeemableVault is ERC4626, Ownable {
             revert InvalidTreasury(treasury_);
         }
 
-        if (owner_ == address(0)) {
-            revert InvalidOwner(owner_);
-        }
-
         uint8 assetsDecimals = IERC20Metadata(address(asset_)).decimals();
         if (assetsDecimals != decimals()) {
             revert InvalidDecimals(decimals(), assetsDecimals);
         }
 
+        if (vestingStart_ < block.timestamp || vestingEnd_ < vestingStart_) {
+            revert InvalidVestingSchedule(block.timestamp, vestingStart_, vestingEnd_);
+        }
+
         _highWaterMark = 10 ** decimals();
+
         _treasury = treasury_;
         _performanceRate = performanceRate_;
+        _vestingStart = vestingStart_;
+        _vestingEnd = vestingEnd_;
     }
 
     // ========================================================================
@@ -106,9 +124,14 @@ contract SemiRedeemableVault is ERC4626, Ownable {
      */
     function updateTotalAssets(uint256 newTotalAssets) external onlyOwner {
         _totalAssets = newTotalAssets;
-        _applyPerformanceFee();
+        
+        uint256 performanceFee = _calculatePerformanceFee();
 
-        emit TotalAssetsUpdated(newTotalAssets);
+        if (performanceFee > 0) {
+            IERC20(asset()).safeTransfer(_treasury, performanceFee);
+        }
+
+        emit TotalAssetsUpdated(newTotalAssets, performanceFee);
     }
 
     /**
@@ -131,6 +154,14 @@ contract SemiRedeemableVault is ERC4626, Ownable {
      */
     function totalAssets() public view virtual override returns (uint256) {
         return _totalAssets;
+    }
+
+    /**
+     * @dev Returns the high water mark of the vault.
+     * @return The high water mark as a percentage in BPS (10000 = 100%)
+     */
+    function highWaterMark() public view returns (uint256) {
+        return _highWaterMark;
     }
 
     /**
@@ -159,6 +190,23 @@ contract SemiRedeemableVault is ERC4626, Ownable {
         return (_ledger[user].assets, _ledger[user].shares);
     }
     
+    /**
+     * @dev Returns the redeemable shares of the user.
+     * @param user The address to query the redeemable shares for
+     * @return The redeemable shares
+     */
+    function redeemableShares(address user) public view returns (uint256) {
+        return vestingRate().mulDiv(_ledger[user].vesting, BPS, Math.Rounding.Floor);
+    }
+
+    /**
+     * @dev Returns the vesting rate of the vault.
+     * @return The vesting rate as a percentage in BPS (10000 = 100%)
+     */
+    function vestingRate() public view returns (uint256) {
+        return _calculateVestingRate();
+    }
+
     /**
      * @dev Converts assets to shares.
      * @param assets The assets to convert
@@ -193,9 +241,12 @@ contract SemiRedeemableVault is ERC4626, Ownable {
         // Call parent deposit function
         uint256 shares = super.deposit(assets, receiver);
         
-        // Update the ledger
-        _ledger[receiver].assets += assets;
-        _ledger[receiver].shares += shares;
+        if(!_redeemsAtNav) {
+            // Update the ledger
+            _ledger[receiver].assets += assets;
+            _ledger[receiver].shares += shares;
+            _ledger[receiver].vesting += shares;
+        }
 
         return shares;
     }
@@ -210,10 +261,13 @@ contract SemiRedeemableVault is ERC4626, Ownable {
         // Call parent mint function
         uint256 assets = super.mint(shares, receiver);
         
-        // Update the ledger
-        _ledger[receiver].assets += assets;
-        _ledger[receiver].shares += shares;
-        
+        if(!_redeemsAtNav) {
+            // Update the ledger
+            _ledger[receiver].assets += assets;
+            _ledger[receiver].shares += shares;
+            _ledger[receiver].vesting += shares;
+        }
+
         return assets;
     }
 
@@ -231,10 +285,22 @@ contract SemiRedeemableVault is ERC4626, Ownable {
         }
 
         uint256 assets = _previewRedeem(shares, owner);
+        
+        if(!_redeemsAtNav) {
+            uint256 availableShares = redeemableShares(owner);
+            
+            if(shares > availableShares) {
+                revert VestingAmountNotRedeemable(owner, shares, availableShares);
+            }
 
-        // Update the ledger
-        _ledger[owner].assets -= assets;
-        _ledger[owner].shares -= shares;
+            // Update the ledger
+            _ledger[owner].assets -= assets;
+            _ledger[owner].shares -= shares;
+
+            if(block.timestamp < _vestingStart) {
+                _ledger[owner].vesting -= shares;
+            }
+        }
         
         _withdraw(_msgSender(), receiver, owner, assets, shares);
 
@@ -256,9 +322,22 @@ contract SemiRedeemableVault is ERC4626, Ownable {
 
         uint256 shares = _previewWithdraw(assets, owner);
 
-        // Update the ledger
-        _ledger[owner].assets -= assets;
-        _ledger[owner].shares -= shares;
+        if(!_redeemsAtNav) {
+
+            uint256 availableShares = redeemableShares(owner);
+            
+            if(shares > availableShares) {
+                revert VestingAmountNotRedeemable(owner, shares, availableShares);
+            }
+        
+            // Update the ledger
+            _ledger[owner].assets -= assets;
+            _ledger[owner].shares -= shares;
+
+            if(block.timestamp < _vestingStart) {
+                _ledger[owner].vesting -= shares;
+            }
+        }
         
         _withdraw(_msgSender(), receiver, owner, assets, shares);
 
@@ -347,20 +426,33 @@ contract SemiRedeemableVault is ERC4626, Ownable {
      /// @dev Calculate the performance fee
     /// @dev The performance is calculated as the difference between the current price per share and the high water mark
     /// @dev The performance fee is calculated as the product of the performance and the performance rate
-    function _applyPerformanceFee() internal {
+    function _calculatePerformanceFee() internal returns (uint256 performanceFee) {
         uint256 pricePerShare = _convertToAssets(10 ** decimals(), Math.Rounding.Ceil);
         
         if (pricePerShare > _highWaterMark) {
             uint256 profitPerShare = pricePerShare - _highWaterMark;
             
             uint256 profit = profitPerShare.mulDiv(totalSupply(), 10 ** decimals(), Math.Rounding.Ceil);
-            uint256 performanceFee = profit.mulDiv(_performanceRate, BPS, Math.Rounding.Ceil);
+            performanceFee = profit.mulDiv(_performanceRate, BPS, Math.Rounding.Ceil);
 
             _highWaterMark = pricePerShare;
-
-            if (performanceFee > 0) {
-                IERC20(asset()).safeTransfer(_treasury, performanceFee);
-            }
         }
+    }
+
+    /* ========================================================================
+    * =========================== Vesting Schedule ============================
+    * =========================================================================
+    */
+
+    function _calculateVestingRate() internal view returns (uint256) {
+        if (block.timestamp < _vestingStart) {
+            return BPS;
+        }
+
+        if (block.timestamp > _vestingEnd) {
+            return 0;
+        }
+
+        return BPS.mulDiv(_vestingEnd - block.timestamp, _vestingEnd - _vestingStart, Math.Rounding.Floor);
     }
 }
