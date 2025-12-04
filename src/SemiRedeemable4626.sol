@@ -8,8 +8,6 @@ import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
 import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {console} from "forge-std/src/Test.sol";
-
 
 /**
  * @title SemiRedeemable4626
@@ -501,7 +499,7 @@ contract SemiRedeemable4626 is ERC4626, Ownable {
     /// @dev The performance fee is calculated as the product of the performance and the performance rate
     function _calculatePerformanceFee() internal returns (uint256 performanceFee) {
         uint256 pricePerShare = _convertToAssets(10 ** decimals(), Math.Rounding.Ceil);
-        
+
         if (pricePerShare > _highWaterMark) {
             uint256 profitPerShare = pricePerShare - _highWaterMark;
             
