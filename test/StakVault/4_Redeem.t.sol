@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
-import {SemiRedeemable4626} from "../../src/SemiRedeemable4626.sol";
+import {StakVault} from "../../src/StakVault.sol";
 
-contract SemiRedeemable4626RedeemTest is BaseTest {
+contract StakVaultRedeemTest is BaseTest {
     function test_Redeem_Success_BeforeVesting() public {
         uint256 depositAmount = 1000e18;
 
@@ -100,9 +100,7 @@ contract SemiRedeemable4626RedeemTest is BaseTest {
 
         vm.startPrank(user1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                SemiRedeemable4626.VestingAmountNotRedeemable.selector, user1, redeemable + 1, redeemable
-            )
+            abi.encodeWithSelector(StakVault.VestingAmountNotRedeemable.selector, user1, redeemable + 1, redeemable)
         );
         vault.redeem(redeemable + 1, user1, user1);
         vm.stopPrank();
@@ -152,9 +150,7 @@ contract SemiRedeemable4626RedeemTest is BaseTest {
         // But we can still redeem at fair price (1:1 in this case)
         // However, the contract will revert because shares > availableShares (0)
         vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(SemiRedeemable4626.VestingAmountNotRedeemable.selector, user1, 500e18, 0)
-        );
+        vm.expectRevert(abi.encodeWithSelector(StakVault.VestingAmountNotRedeemable.selector, user1, 500e18, 0));
         vault.redeem(500e18, user1, user1);
         vm.stopPrank();
     }

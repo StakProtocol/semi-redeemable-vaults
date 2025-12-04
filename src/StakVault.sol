@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC20} from "@openzeppelin-contracts/token/ERC20/ERC20.sol";
-import {ERC4626} from "@openzeppelin-contracts/token/ERC20/extensions/ERC4626.sol";
-import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
-import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
+import {ERC4626} from "@openzeppelin/token/ERC20/extensions/ERC4626.sol";
+import {Ownable} from "@openzeppelin/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/utils/math/Math.sol";
+import {IERC20Metadata} from "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
+import {console} from "forge-std/src/Test.sol";
 
 /**
- * @title SemiRedeemable4626
- * @dev A simple ERC4626 vault implementation with ownership control and vesting mechanics
+ * @title StakVault (Semi Redeemable 4626)
+ * @dev A simple ERC4626 vault implementation with perpetual put option, vesting mechanics and performance fees
  *
  * \=== REDEMPTION MECHANICS ===
  * The vault operates in two distinct modes:
@@ -50,7 +51,7 @@ import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IER
  * - Enable NAV redemptions when post-vesting redemptions should be allowed
  * - Manage performance fee collection through treasury
  */
-contract SemiRedeemable4626 is ERC4626, Ownable {
+contract StakVault is ERC4626, Ownable {
     using Math for uint256;
     using SafeERC20 for IERC20;
 

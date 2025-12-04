@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626EdgeTest is BaseTest {
+contract StakVaultEdgeTest is BaseTest {
     function test_Deposit_ZeroAmount() public {
         vm.startPrank(user1);
         asset.approve(address(vault), 0);
@@ -123,7 +123,7 @@ contract SemiRedeemable4626EdgeTest is BaseTest {
     // TODO: Implement this test
     // SECURITY.md #5: Approval Mechanism for Delegated Redemptions
     // When user1 approves user2 to redeem, user2 should be able to redeem the shares
-    function skip_test_Redeem_WithDifferentUser() public {
+    function skipTestRedeemWithDifferentUser() public {
         uint256 depositAmount = 1000e18;
 
         vm.startPrank(user1);

@@ -1,4 +1,4 @@
-# SemiRedeemable4626
+# StakVault
 
 An ERC-4626 vault with dual redemption modes and per-user deposit tracking.
 
@@ -24,7 +24,7 @@ forge build
 ### Deploy
 
 ```solidity
-SemiRedeemable4626 vault = new SemiRedeemable4626(
+StakVault vault = new StakVault(
     assetToken,
     "Vault Token",
     "VAULT",

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626PreviewTest is BaseTest {
+contract StakVaultPreviewTest is BaseTest {
     function test_PreviewDeposit() public view {
         uint256 assets = 1000e18;
         uint256 shares = vault.previewDeposit(assets);

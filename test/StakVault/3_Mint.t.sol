@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626MintTest is BaseTest {
+contract StakVaultMintTest is BaseTest {
     function test_Mint_Success() public {
         uint256 shares = 1000e18;
         uint256 assets = vault.previewMint(shares);

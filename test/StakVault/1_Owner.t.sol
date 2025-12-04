@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626OwnerTest is BaseTest {
+contract StakVaultOwnerTest is BaseTest {
     function test_TakeAssets_Success() public {
         asset.mint(address(vault), 1000e18);
 

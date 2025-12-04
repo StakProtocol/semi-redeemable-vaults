@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626WithdrawTest is BaseTest {
+contract StakVaultWithdrawTest is BaseTest {
     function test_Withdraw_Success() public {
         uint256 depositAmount = 1000e18;
 

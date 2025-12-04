@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626PerformanceTest is BaseTest {
+contract StakVaultPerformanceTest is BaseTest {
     function test_PerformanceFee_Calculation() public {
         // Initial deposit
         uint256 depositAmount = 1000e18;
