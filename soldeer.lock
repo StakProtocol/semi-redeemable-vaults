@@ -11,3 +11,10 @@ version = "1.12.0"
 url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_12_0_28-11-2025_13:04:44_forge-std-1.12.zip"
 checksum = "81dccd87cb3303f28fa7f8158e3fed087afcdafa976e78ad1a8601a9883fe413"
 integrity = "76ecadcacae000ba45c346835c9458cc572d3b1555ae0056a34537157111c204"
+
+[[dependencies]]
+name = "smartcontractkit-chainlink-evm"
+version = "1.5.0"
+url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink-evm/1_5_0_02-10-2025_12:45:11_smartcontractkit-chainlink-evm-1.5.zip"
+checksum = "a7fd8fbdd165f0515bc3914ad2ea477564e7b09f9b3b676b271f0d74e6de7fa9"
+integrity = "437b083ac0567eae502c6bc6ff360d46de634917254e3dbae06faf1b85cd1372"

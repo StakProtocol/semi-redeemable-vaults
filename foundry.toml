@@ -7,5 +7,6 @@ solc = "0.8.24"
 [dependencies]
 forge-std = "1.12.0"
 "@openzeppelin-contracts" = "5.5.0"
+smartcontractkit-chainlink-evm = "1.5.0"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

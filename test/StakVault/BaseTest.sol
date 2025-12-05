@@ -2,16 +2,16 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/src/Test.sol";
-import {SemiRedeemable4626} from "../../src/SemiRedeemable4626.sol";
+import {StakVault} from "../../src/StakVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 
 /**
  * @title BaseTest
- * @dev Base contract for SemiRedeemable4626 tests containing common setup and declarations
+ * @dev Base contract for StakVault tests containing common setup and declarations
  */
 contract BaseTest is Test {
-    SemiRedeemable4626 public vault;
+    StakVault public vault;
     MockERC20 public asset;
 
     address public owner = address(0x1);
@@ -41,7 +41,7 @@ contract BaseTest is Test {
         vestingEnd = block.timestamp + 30 days;
 
         vm.prank(owner);
-        vault = new SemiRedeemable4626(
+        vault = new StakVault(
             IERC20(address(asset)), "Vault Token", "VAULT", owner, treasury, PERFORMANCE_RATE, vestingStart, vestingEnd
         );
 

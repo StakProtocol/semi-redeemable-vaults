@@ -1,56 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC20} from "@openzeppelin-contracts/token/ERC20/ERC20.sol";
-import {ERC4626} from "@openzeppelin-contracts/token/ERC20/extensions/ERC4626.sol";
-import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin-contracts/utils/math/Math.sol";
-import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
+import {ERC4626} from "@openzeppelin/token/ERC20/extensions/ERC4626.sol";
+import {Ownable} from "@openzeppelin/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/utils/math/Math.sol";
+import {IERC20Metadata} from "@openzeppelin/token/ERC20/extensions/IERC20Metadata.sol";
+import {console} from "forge-std/src/Test.sol";
 
 /**
- * @title SemiRedeemable4626
- * @dev A simple ERC4626 vault implementation with ownership control and vesting mechanics
- *
- * \=== REDEMPTION MECHANICS ===
- * The vault operates in two distinct modes:
- * 1. Fair Price Mode (default): Redemptions happen at the same price shares were minted at
- * 2. NAV Mode: Redemptions happen at current Net Asset Value (NAV) price
- *
- * Once NAV redemptions are enabled by the owner, the vault cannot return to fair pricing mode.
- *
- * \=== VESTING SCHEDULE ===
- * The vault implements a linear vesting schedule with three distinct phases:
- *
- * 1. PRE-VESTING (before vestingStart):
- *    - All shares are fully redeemable at fair price
- *    - Users can redeem 100% of their shares
- *
- * 2. VESTING PERIOD (vestingStart to vestingEnd):
- *    - Redeemable shares decrease linearly over time
- *    - Formula: redeemableShares = totalShares * (vestingEnd - currentTime) / (vestingEnd - vestingStart)
- *    - Users can only redeem the calculated redeemable portion
- *
- * 3. POST-VESTING (after vestingEnd):
- *    - IMPORTANT: Vesting-based redemptions are NO LONGER AVAILABLE (redeemableShares = 0)
- *    - Users' shares are effectively locked until NAV redemptions are enabled
- *    - This is the intended behavior to prevent post-vesting redemptions at stale fair prices
- *    - Users must wait for the owner to enable NAV redemptions to access their funds
- *
- * \=== IMPORTANT NOTES ===
- * - After vesting ends, users cannot redeem shares until NAV mode is enabled
- * - This prevents redemptions at potentially outdated fair prices after the vesting period
- * - The owner should enable NAV redemptions when appropriate to unlock user funds
- * - Performance fees are calculated as a percentage of profit above the high water mark
- * - The vault maintains individual user ledgers for fair price calculations
- *
- * \=== OWNER RESPONSIBILITIES ===
- * - Set total assets to reflect true vault value
- * - Enable NAV redemptions when post-vesting redemptions should be allowed
- * - Manage performance fee collection through treasury
+ * @title StakVault (Semi Redeemable 4626)
+ * @dev A simple ERC4626 vault implementation with perpetual put option, vesting mechanics and performance fees
  */
-contract SemiRedeemable4626 is ERC4626, Ownable {
+
+contract StakVault is ERC4626, Ownable {
     using Math for uint256;
     using SafeERC20 for IERC20;
 

@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
-import {SemiRedeemable4626} from "../../src/SemiRedeemable4626.sol";
+import {StakVault} from "../../src/StakVault.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 
-contract SemiRedeemable4626SetupTest is BaseTest {
+contract StakVaultSetupTest is BaseTest {
     function test_Constructor_Success() public view {
         assertEq(vault.owner(), owner);
         assertEq(vault.redeemsAtNav(), false);
@@ -20,7 +20,7 @@ contract SemiRedeemable4626SetupTest is BaseTest {
         MockERC20 asset6Decimals = new MockERC20("Asset6", "AST6", decimals);
 
         // This should succeed because ERC4626 matches asset decimals
-        SemiRedeemable4626 vault6 = new SemiRedeemable4626(
+        StakVault vault6 = new StakVault(
             IERC20(address(asset6Decimals)),
             "Vault Token 6",
             "VAULT6",
@@ -35,11 +35,9 @@ contract SemiRedeemable4626SetupTest is BaseTest {
     }
 
     function test_Constructor_RevertWhen_InvalidPerformanceRate() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(SemiRedeemable4626.InvalidPerformanceRate.selector, MAX_PERFORMANCE_RATE + 1)
-        );
+        vm.expectRevert(abi.encodeWithSelector(StakVault.InvalidPerformanceRate.selector, MAX_PERFORMANCE_RATE + 1));
 
-        new SemiRedeemable4626(
+        new StakVault(
             IERC20(address(asset)),
             "Vault Token",
             "VAULT",
@@ -52,9 +50,9 @@ contract SemiRedeemable4626SetupTest is BaseTest {
     }
 
     function test_Constructor_RevertWhen_InvalidTreasury() public {
-        vm.expectRevert(abi.encodeWithSelector(SemiRedeemable4626.InvalidTreasury.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(StakVault.InvalidTreasury.selector, address(0)));
 
-        new SemiRedeemable4626(
+        new StakVault(
             IERC20(address(asset)),
             "Vault Token",
             "VAULT",
@@ -69,11 +67,11 @@ contract SemiRedeemable4626SetupTest is BaseTest {
     function test_Constructor_RevertWhen_InvalidVestingSchedule_StartInPast() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                SemiRedeemable4626.InvalidVestingSchedule.selector, block.timestamp, block.timestamp - 1, vestingEnd
+                StakVault.InvalidVestingSchedule.selector, block.timestamp, block.timestamp - 1, vestingEnd
             )
         );
 
-        new SemiRedeemable4626(
+        new StakVault(
             IERC20(address(asset)),
             "Vault Token",
             "VAULT",
@@ -88,11 +86,11 @@ contract SemiRedeemable4626SetupTest is BaseTest {
     function test_Constructor_RevertWhen_InvalidVestingSchedule_EndBeforeStart() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                SemiRedeemable4626.InvalidVestingSchedule.selector, block.timestamp, vestingStart, vestingStart - 1
+                StakVault.InvalidVestingSchedule.selector, block.timestamp, vestingStart, vestingStart - 1
             )
         );
 
-        new SemiRedeemable4626(
+        new StakVault(
             IERC20(address(asset)),
             "Vault Token",
             "VAULT",

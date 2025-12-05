@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./BaseTest.sol";
 
-contract SemiRedeemable4626GetterTest is BaseTest {
+contract StakVaultGetterTest is BaseTest {
     function test_TotalAssets() public {
         assertEq(vault.totalAssets(), 0);
 
