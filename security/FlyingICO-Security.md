@@ -1,31 +1,4 @@
-### 1. No Stale Price Feed Protection
-
-**Severity: MEDIUM**
-
-**Location:** `_assetToUsdValue()` function (line 384-392)
-
-**Issue:**
-The contract calls `ChainlinkLibrary.getPrice()` without passing a `frequency` parameter, which means it doesn't check if the price feed data is stale. The contract has a TODO comment acknowledging this: "TODO: missing frequency of oracles and sequencer for L2s".
-
-**Current Code:**
-```solidity
-uint256 price = ChainlinkLibrary.getPrice(address(feed));
-```
-
-**Impact:**
-- Stale price data can be used, leading to incorrect token minting
-- Users could exploit stale prices to get more tokens than they should
-- On L2s, sequencer downtime checks are missing
-
-**Recommended Fix:**
-Add frequency and sequencer checks:
-```solidity
-uint256 price = ChainlinkLibrary.getPrice(address(feed), 1 hours, sequencerAddress);
-```
-
----
-
-### 2. Precision Issues with Very Small Amounts
+### 1. Precision Issues with Very Small Amounts
 
 **Severity: LOW**
 
@@ -44,7 +17,7 @@ Add minimum investment amount checks or improve precision handling.
 
 ---
 
-### 3. No Event for Position Deletion
+### 2. No Event for Position Deletion
 
 **Severity: LOW**
 

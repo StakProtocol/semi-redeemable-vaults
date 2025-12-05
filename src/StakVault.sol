@@ -19,30 +19,50 @@ contract StakVault is ERC4626, Ownable {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
+    // ========================================================================
+    // Constants ==============================================================
+    // ========================================================================
+
+    uint256 private constant BPS = 10_000; // 100%
+    uint256 private constant MAX_PERFORMANCE_RATE = 5000; // 50 %
+    uint256 private constant WAD = 1e18;
+
     address private immutable _TREASURY;
     uint256 private immutable _PERFORMANCE_RATE;
     uint256 private immutable _VESTING_START;
     uint256 private immutable _VESTING_END;
 
-    uint256 private constant BPS = 10_000; // 100%
-    uint256 private constant MAX_PERFORMANCE_RATE = 5000; // 50 %
+    // ========================================================================
+    // Structs ===============================================================
+    // ========================================================================
 
-    bool private _redeemsAtNav;
-    uint256 private _investedAssets;
-    uint256 private _highWaterMark;
-
-    struct Ledger {
-        uint256 assets;
-        uint256 shares;
-        uint256 vesting;
+    struct Position {
+        address user;
+        uint256 assetAmount;
+        uint256 shareAmount;
+        uint256 vestingAmount;
     }
 
-    mapping(address => Ledger) private _ledger;
+    // ========================================================================
+    // State Variables ========================================================
+    // ========================================================================
+
+    bool public redeemsAtNav; // Whether redemptions are enabled
+    uint256 public highWaterMark; // High water mark of the vault for performance fees
+    uint256 public backingBalance; // Backing assets held as backing for open PUTs
+    uint256 public investedAssets; // Total assets managed by the vault    
+    
+
+    uint256 public nextPositionId;
+    mapping(uint256 => Position) public positions; // positionId -> position
+    mapping(address => uint256[]) public positionsOf; // user -> positionsIds
 
     /* ========================================================================
     * =============================== Events ================================
     * =========================================================================
     */
+
+    event StakVault__Invested(address indexed user, uint256 positionId, uint256 assetAmount, uint256 shareAmount);
 
     event AssetsTaken(uint256 assets);
     event InvestedAssetsUpdated(uint256 newInvestedAssets, uint256 performanceFee);
@@ -53,12 +73,11 @@ contract StakVault is ERC4626, Ownable {
     * =========================================================================
     */
 
+    error StakVault__ZeroValue();
     error InvalidPerformanceRate(uint256 performanceRate);
     error InvalidTreasury(address treasury);
     error InvalidDecimals(uint8 sharesDecimals, uint8 assetsDecimals);
     error InvalidVestingSchedule(uint256 currentTime, uint256 vestingStart, uint256 vestingEnd);
-    /// @dev Thrown when user tries to redeem more shares than currently available through vesting
-    /// After vesting ends, availableShares becomes 0, effectively locking all shares until NAV redemptions are enabled
     error VestingAmountNotRedeemable(address user, uint256 shares, uint256 availableShares);
 
     // ========================================================================
@@ -92,7 +111,7 @@ contract StakVault is ERC4626, Ownable {
             revert InvalidVestingSchedule(block.timestamp, vestingStart_, vestingEnd_);
         }
 
-        _highWaterMark = 10 ** decimals();
+        highWaterMark = 10 ** decimals();
 
         _TREASURY = treasury_;
         _PERFORMANCE_RATE = performanceRate_;
@@ -105,7 +124,7 @@ contract StakVault is ERC4626, Ownable {
     // ========================================================================
 
     function takeAssets(uint256 assets) external onlyOwner {
-        _investedAssets += assets;
+        investedAssets += assets;
         IERC20(asset()).safeTransfer(owner(), assets);
         emit AssetsTaken(assets);
     }
@@ -116,7 +135,7 @@ contract StakVault is ERC4626, Ownable {
      * @param newInvestedAssets The new invested assets value
      */
     function updateInvestedAssets(uint256 newInvestedAssets) external onlyOwner {
-        _investedAssets = newInvestedAssets;
+        investedAssets = newInvestedAssets;
 
         uint256 performanceFee = _calculatePerformanceFee();
 
@@ -140,8 +159,7 @@ contract StakVault is ERC4626, Ownable {
      * Can only be called by the owner and cannot be reversed.
      */
     function enableRedeemsAtNav() external onlyOwner {
-        _redeemsAtNav = true;
-
+        redeemsAtNav = true;
         emit RedeemsAtNavEnabled();
     }
 
@@ -154,15 +172,7 @@ contract StakVault is ERC4626, Ownable {
      * This can be set externally by the owner and may differ from the contract's balance.
      */
     function totalAssets() public view virtual override returns (uint256) {
-        return super.totalAssets() + _investedAssets;
-    }
-
-    /**
-     * @dev Returns the high water mark of the vault.
-     * @return The high water mark as a percentage in BPS (10000 = 100%)
-     */
-    function highWaterMark() public view returns (uint256) {
-        return _highWaterMark;
+        return super.totalAssets() + investedAssets;
     }
 
     /**
@@ -172,14 +182,7 @@ contract StakVault is ERC4626, Ownable {
     function utilizationRate() public view returns (uint256) {
         uint256 _totalAssets = totalAssets();
         if (_totalAssets == 0) return 0;
-        return BPS.mulDiv(_investedAssets, _totalAssets, Math.Rounding.Floor);
-    }
-
-    /**
-     * @dev Returns whether redemptions are at NAV.
-     */
-    function redeemsAtNav() public view returns (bool) {
-        return _redeemsAtNav;
+        return BPS.mulDiv(investedAssets, _totalAssets, Math.Rounding.Floor);
     }
 
     /**
@@ -188,8 +191,8 @@ contract StakVault is ERC4626, Ownable {
      * @return assets The assets in the ledger
      * @return shares The shares in the ledger
      */
-    function getLedger(address user) public view returns (uint256 assets, uint256 shares) {
-        return (_ledger[user].assets, _ledger[user].shares);
+    function positionsOfUser(address user) public view returns (uint256[] memory) {
+        return positionsOf[user];
     }
 
     /**
@@ -207,7 +210,7 @@ contract StakVault is ERC4626, Ownable {
      * @return The redeemable shares (0 if vesting period has ended)
      */
     function redeemableShares(address user) public view returns (uint256) {
-        return vestingRate().mulDiv(_ledger[user].vesting, BPS, Math.Rounding.Floor);
+        return vestingRate().mulDiv(positions[user].vestingAmount, BPS, Math.Rounding.Floor);
     }
 
     /**
@@ -254,18 +257,12 @@ contract StakVault is ERC4626, Ownable {
      * @param receiver The receiver of the shares
      * @return The shares
      */
-    function deposit(uint256 assets, address receiver) public virtual override returns (uint256) {
-        // Call parent deposit function
-        uint256 shares = super.deposit(assets, receiver);
-
-        if (!_redeemsAtNav) {
-            // Update the ledger
-            _ledger[receiver].assets += assets;
-            _ledger[receiver].shares += shares;
-            _ledger[receiver].vesting += shares;
+    function deposit(uint256 assets, address) public virtual override returns (uint256 shares) {
+        shares = super.deposit(assets, address(this));
+        
+        if (!redeemsAtNav) {
+            _invest(assets, shares);
         }
-
-        return shares;
     }
 
     /**
@@ -274,18 +271,32 @@ contract StakVault is ERC4626, Ownable {
      * @param receiver The receiver of the assets
      * @return The assets
      */
-    function mint(uint256 shares, address receiver) public virtual override returns (uint256) {
-        // Call parent mint function
-        uint256 assets = super.mint(shares, receiver);
+    function mint(uint256 shares, address receiver) public virtual override returns (uint256 assets) {
+        assets = super.mint(shares, receiver);
 
-        if (!_redeemsAtNav) {
-            // Update the ledger
-            _ledger[receiver].assets += assets;
-            _ledger[receiver].shares += shares;
-            _ledger[receiver].vesting += shares;
+        if (!redeemsAtNav) {
+            _invest(assets, shares);
+        }
+    }
+
+    function _invest(uint256 assetAmount, uint256 shareAmount) internal returns (uint256 positionId) {
+        if (assetAmount == 0) {
+            revert StakVault__ZeroValue();
         }
 
-        return assets;
+        backingBalance += assetAmount;
+
+        positionId = nextPositionId++;
+        positions[positionId] = Position({
+            user: msg.sender,
+            assetAmount: assetAmount,
+            shareAmount: shareAmount,
+            vestingAmount: shareAmount
+        });
+
+        positionsOf[msg.sender].push(positionId);
+
+        emit StakVault__Invested(msg.sender, positionId, assetAmount, shareAmount);
     }
 
     /**

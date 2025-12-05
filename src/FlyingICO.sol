@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+// TODO: ADD VESTING MECHANICS
+
 /*
   Flying ICO — Simplified Investment Contract
   - Users deposit accepted assets in form of accepted ERC20s
@@ -272,8 +274,14 @@ contract FlyingICO is ERC20, ERC20Burnable, ERC20Permit, ReentrancyGuard {
     /// @param assetAmount the amount of asset to invest
     /// @return positionId the id of the position created
     function _invest(address asset, uint256 assetAmount) internal returns (uint256 positionId) {
-        // sanity check
-        _investSanityCheck(asset, assetAmount);
+        if (assetAmount == 0) {
+            revert FlyingICO__ZeroValue();
+        }
+
+        if (!_acceptedAsset(asset)) {
+            revert FlyingICO__AssetNotAccepted(asset);
+        }
+
         // compute token amount
         uint256 tokenAmount = _computeTokenAmount(asset, assetAmount);
         // mint tokens to this contract
@@ -289,38 +297,7 @@ contract FlyingICO is ERC20, ERC20Burnable, ERC20Permit, ReentrancyGuard {
         emit FlyingICO__Invested(msg.sender, positionId, asset, assetAmount, tokenAmount);
     }
 
-    function _divest(uint256 positionId, uint256 tokensAmount) internal returns (uint256 assetAmount) {
-        // sanity check
-        _divestSanityCheck(positionId, tokensAmount);
-        // compute proportional asset return
-        assetAmount = _computeAssetAmount(positionId, tokensAmount);
-
-        // Update position
-        Position storage position = positions[positionId];
-        position.tokenAmount -= tokensAmount;
-        position.assetAmount -= assetAmount;
-
-        // reduce backing
-        backingBalances[position.asset] -= assetAmount;        
-    }
-
-    /// @notice Internal function to check the sanity of an investment
-    /// @param asset the asset to invest
-    /// @param assetAmount the amount of asset to invest
-    function _investSanityCheck(address asset, uint256 assetAmount) internal view {
-        if (assetAmount == 0) {
-            revert FlyingICO__ZeroValue();
-        }
-
-        if (!_acceptedAsset(asset)) {
-            revert FlyingICO__AssetNotAccepted(asset);
-        }
-    }
-
-    /// @notice Internal function to check the sanity of a divestment
-    /// @param positionId Id of the position created at invest
-    /// @param tokenAmount amount of Tokens (in Tokens units) to divest from that position
-    function _divestSanityCheck(uint256 positionId, uint256 tokenAmount) internal view {
+    function _divest(uint256 positionId, uint256 tokenAmount) internal returns (uint256 assetAmount) {
         if (tokenAmount == 0) {
             revert FlyingICO__ZeroValue();
         }
@@ -332,6 +309,17 @@ contract FlyingICO is ERC20, ERC20Burnable, ERC20Permit, ReentrancyGuard {
         if (positions[positionId].tokenAmount < tokenAmount) {
             revert FlyingICO__NotEnoughLockedTokens();
         }
+
+        // compute proportional asset return
+        assetAmount = _computeAssetAmount(positionId, tokenAmount);
+
+        // Update position
+        Position storage position = positions[positionId];
+        position.tokenAmount -= tokenAmount;
+        position.assetAmount -= assetAmount;
+
+        // reduce backing
+        backingBalances[position.asset] -= assetAmount;
     }
 
     /// @notice Internal function to compute the token amount for an investment
