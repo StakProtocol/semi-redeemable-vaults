@@ -5,6 +5,7 @@ import {Test} from "forge-std/src/Test.sol";
 import {FlyingICO} from "../src/FlyingICO.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockChainlinkPriceFeed} from "./mocks/MockChainlinkPriceFeed.sol";
+import {AggregatorV3Interface} from "@chainlink/shared/interfaces/AggregatorV3Interface.sol";
 
 contract FlyingICOTest is Test {
     FlyingICO public ico;
@@ -18,6 +19,9 @@ contract FlyingICOTest is Test {
     address public user1 = address(0x2);
     address public user2 = address(0x3);
     address public user3 = address(0x4);
+
+    address public sequencer = address(0x5);
+    uint256[] public frequencies = new uint256[](3);
 
     uint256 public constant TOKEN_CAP = 1000000; // 1M tokens
     uint256 public constant TOKENS_PER_USD = 10; // 10 tokens per $1 USD
@@ -37,7 +41,10 @@ contract FlyingICOTest is Test {
         uint256 tokenCap,
         uint256 tokensPerUsd,
         address[] acceptedAssets,
-        address[] priceFeeds
+        address[] priceFeeds,
+        uint256[] frequencies,
+        address sequencer,
+        address treasury
     );
     event FlyingICO__Invested(
         address indexed user, uint256 positionId, address asset, uint256 assetAmount, uint256 tokensMinted
@@ -78,8 +85,22 @@ contract FlyingICOTest is Test {
         priceFeeds[1] = address(wethPriceFeed);
         priceFeeds[2] = address(ethPriceFeed);
 
+        frequencies[0] = 1 hours;
+        frequencies[1] = 1 hours;
+        frequencies[2] = 1 hours;
+
         // Deploy ICO
-        ico = new FlyingICO("Flying Token", "FLY", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, treasury);
+        ico = new FlyingICO(
+            "Flying Token",
+            "FLY",
+            TOKEN_CAP,
+            TOKENS_PER_USD,
+            acceptedAssets,
+            priceFeeds,
+            frequencies,
+            sequencer,
+            treasury
+        );
 
         // Give users some tokens
         usdc.mint(user1, 1000000e6);
@@ -103,12 +124,14 @@ contract FlyingICOTest is Test {
         assertEq(ico._TOKENS_CAP(), TOKEN_CAP * WAD);
         assertEq(ico._TOKENS_PER_USD(), TOKENS_PER_USD * WAD);
         assertEq(ico._TREASURY(), treasury);
-        assertEq(ico.acceptedAssets(address(usdc)), true);
-        assertEq(ico.acceptedAssets(address(weth)), true);
-        assertEq(ico.acceptedAssets(address(0)), true);
-        assertEq(ico.priceFeeds(address(usdc)), address(usdcPriceFeed));
-        assertEq(ico.priceFeeds(address(weth)), address(wethPriceFeed));
-        assertEq(ico.priceFeeds(address(0)), address(ethPriceFeed));
+
+        (AggregatorV3Interface usdcFeed,) = ico.priceFeeds(address(usdc));
+        (AggregatorV3Interface wethFeed,) = ico.priceFeeds(address(weth));
+        (AggregatorV3Interface ethFeed,) = ico.priceFeeds(address(0));
+
+        assertEq(address(usdcFeed), address(usdcPriceFeed));
+        assertEq(address(wethFeed), address(wethPriceFeed));
+        assertEq(address(ethFeed), address(ethPriceFeed));
         assertEq(ico.nextPositionId(), 1);
     }
 
@@ -122,7 +145,17 @@ contract FlyingICOTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(FlyingICO.InvalidArraysLength.selector, 2, 1));
 
-        new FlyingICO("Flying Token", "FLY", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, treasury);
+        new FlyingICO(
+            "Flying Token",
+            "FLY",
+            TOKEN_CAP,
+            TOKENS_PER_USD,
+            acceptedAssets,
+            priceFeeds,
+            frequencies,
+            sequencer,
+            treasury
+        );
     }
 
     function test_Constructor_EmitsInitialized() public {
@@ -133,9 +166,29 @@ contract FlyingICOTest is Test {
         priceFeeds[0] = address(usdcPriceFeed);
 
         vm.expectEmit(true, true, true, true);
-        emit FlyingICO__Initialized("Test Token", "TEST", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds);
+        emit FlyingICO__Initialized(
+            "Test Token",
+            "TEST",
+            TOKEN_CAP,
+            TOKENS_PER_USD,
+            acceptedAssets,
+            priceFeeds,
+            frequencies,
+            sequencer,
+            treasury
+        );
 
-        new FlyingICO("Test Token", "TEST", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, treasury);
+        new FlyingICO(
+            "Test Token",
+            "TEST",
+            TOKEN_CAP,
+            TOKENS_PER_USD,
+            acceptedAssets,
+            priceFeeds,
+            frequencies,
+            sequencer,
+            treasury
+        );
     }
 
     function test_Constructor_RevertWhen_TreasuryIsZeroAddress() public {
@@ -147,7 +200,17 @@ contract FlyingICOTest is Test {
 
         vm.expectRevert(FlyingICO.FlyingICO__ZeroAddress.selector);
 
-        new FlyingICO("Flying Token", "FLY", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, address(0));
+        new FlyingICO(
+            "Flying Token",
+            "FLY",
+            TOKEN_CAP,
+            TOKENS_PER_USD,
+            acceptedAssets,
+            priceFeeds,
+            frequencies,
+            sequencer,
+            address(0)
+        );
     }
 
     // ========================================================================
@@ -228,20 +291,22 @@ contract FlyingICOTest is Test {
         address[] memory priceFeeds = new address[](1);
         priceFeeds[0] = address(ethPriceFeed);
 
-        FlyingICO smallCapICO = new FlyingICO(
+        FlyingICO smallCapIco = new FlyingICO(
             "Small Cap",
             "SMALL",
             100, // 100 tokens cap
             10,
             acceptedAssets,
             priceFeeds,
+            frequencies,
+            sequencer,
             treasury
         );
 
         // 1 ETH = 20000 tokens, but cap is only 100 tokens
         vm.prank(user1);
         vm.expectRevert(FlyingICO.FlyingICO__TokensCapExceeded.selector);
-        smallCapICO.investEther{value: 1 ether}();
+        smallCapIco.investEther{value: 1 ether}();
     }
 
     // ========================================================================
@@ -319,12 +384,13 @@ contract FlyingICOTest is Test {
         address[] memory priceFeeds = new address[](1);
         priceFeeds[0] = address(0); // No price feed
 
-        FlyingICO icoNoFeed =
-            new FlyingICO("Test", "TEST", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, treasury);
+        FlyingICO icoNoFeed = new FlyingICO(
+            "Test", "TEST", TOKEN_CAP, TOKENS_PER_USD, acceptedAssets, priceFeeds, frequencies, sequencer, treasury
+        );
 
         vm.startPrank(user1);
         usdc.approve(address(icoNoFeed), 1000e6);
-        vm.expectRevert(abi.encodeWithSelector(FlyingICO.FlyingICO__NoPriceFeedForAsset.selector, address(usdc)));
+        vm.expectRevert(abi.encodeWithSelector(FlyingICO.FlyingICO__AssetNotAccepted.selector, address(usdc)));
         icoNoFeed.investERC20(address(usdc), 1000e6);
         vm.stopPrank();
     }
@@ -627,8 +693,8 @@ contract FlyingICOTest is Test {
         assertEq(ico.backingBalances(address(0)), 0.5 ether);
 
         // Available ETH should now be 0.5 ether (total balance - backing)
-        uint256 availableETH = address(ico).balance - ico.backingBalances(address(0));
-        assertEq(availableETH, 0.5 ether);
+        uint256 availableEther = address(ico).balance - ico.backingBalances(address(0));
+        assertEq(availableEther, 0.5 ether);
 
         // Treasury should be able to take the available assets
         uint256 treasuryBalanceBefore = address(treasury).balance;
@@ -645,8 +711,8 @@ contract FlyingICOTest is Test {
         assertEq(ico.backingBalances(address(0)), 0.5 ether);
 
         // Available ETH should now be 0.2 ether
-        uint256 availableETHAfter = address(ico).balance - ico.backingBalances(address(0));
-        assertEq(availableETHAfter, 0.2 ether);
+        uint256 availableEtherAfter = address(ico).balance - ico.backingBalances(address(0));
+        assertEq(availableEtherAfter, 0.2 ether);
     }
 
     function test_TakeAssetsToTreasury_ERC20_Success() public {
@@ -667,8 +733,8 @@ contract FlyingICOTest is Test {
         assertEq(ico.backingBalances(address(usdc)), 500e6);
 
         // Available USDC should now be 500e6 (total balance - backing)
-        uint256 availableUSDC = usdc.balanceOf(address(ico)) - ico.backingBalances(address(usdc));
-        assertEq(availableUSDC, 500e6);
+        uint256 availableUsdc = usdc.balanceOf(address(ico)) - ico.backingBalances(address(usdc));
+        assertEq(availableUsdc, 500e6);
 
         // Treasury should be able to take the available assets
         uint256 treasuryBalanceBefore = usdc.balanceOf(treasury);
@@ -685,8 +751,8 @@ contract FlyingICOTest is Test {
         assertEq(ico.backingBalances(address(usdc)), 500e6);
 
         // Available USDC should now be 200e6
-        uint256 availableUSDCAfter = usdc.balanceOf(address(ico)) - ico.backingBalances(address(usdc));
-        assertEq(availableUSDCAfter, 200e6);
+        uint256 availableUsdcAfter = usdc.balanceOf(address(ico)) - ico.backingBalances(address(usdc));
+        assertEq(availableUsdcAfter, 200e6);
     }
 
     function test_TakeAssetsToTreasury_RevertWhen_ZeroValue() public {
@@ -709,7 +775,7 @@ contract FlyingICOTest is Test {
 
         // Try to take more than available (all is in backing)
         vm.prank(treasury);
-        vm.expectRevert(FlyingICO.FlyingICO__InsufficientETH.selector);
+        vm.expectRevert(FlyingICO.FlyingICO__InsufficientEther.selector);
         ico.takeAssetsToTreasury(address(0), 0.1 ether);
     }
 
@@ -757,7 +823,7 @@ contract FlyingICOTest is Test {
         assertEq(positions[2], 3);
     }
 
-    function test_PositionsOfUser_NoPositions() public {
+    function test_PositionsOfUser_NoPositions() public view {
         uint256[] memory positions = ico.positionsOfUser(user1);
         assertEq(positions.length, 0);
     }
@@ -817,24 +883,26 @@ contract FlyingICOTest is Test {
         address[] memory priceFeeds = new address[](1);
         priceFeeds[0] = address(ethPriceFeed);
 
-        FlyingICO smallCapICO = new FlyingICO(
+        FlyingICO smallCapIco = new FlyingICO(
             "Small",
             "SMALL",
             1000, // 1000 tokens
             10,
             acceptedAssets,
             priceFeeds,
+            frequencies,
+            sequencer,
             treasury
         );
 
         // 0.05 ETH = 1000 tokens (at cap)
         vm.prank(user1);
-        smallCapICO.investEther{value: 0.05 ether}();
+        smallCapIco.investEther{value: 0.05 ether}();
 
         // Next investment should exceed cap
         vm.prank(user2);
         vm.expectRevert(FlyingICO.FlyingICO__TokensCapExceeded.selector);
-        smallCapICO.investEther{value: 0.0001 ether}();
+        smallCapIco.investEther{value: 0.0001 ether}();
     }
 
     function test_Divest_WithPartialPosition() public {

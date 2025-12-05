@@ -17,14 +17,6 @@ library ChainlinkLibrary {
     error ChainlinkLibrary__SequencerDown();
     error ChainlinkLibrary__GracePeriodNotOver();
 
-    function getPrice(address oracle) internal view returns (uint256) {
-        return getPrice(oracle, 0, address(0));
-    }
-
-    function getPrice(address oracle, uint256 frequency) internal view returns (uint256) {
-        return getPrice(oracle, frequency, address(0));
-    }
-
     function getPrice(address oracle, uint256 frequency, address sequencer) internal view returns (uint256) {
         (uint80 roundId, int256 price,, uint256 updatedAt, uint80 answeredInRound) =
             IPriceFeed(oracle).latestRoundData();
