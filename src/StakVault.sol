@@ -37,7 +37,6 @@ contract StakVault is ERC4626, Ownable {
     // ========================================================================
 
     struct Position {
-        address user;
         uint256 assetAmount;
         uint256 shareAmount;
         uint256 vestingAmount;
@@ -50,12 +49,10 @@ contract StakVault is ERC4626, Ownable {
     bool public redeemsAtNav; // Whether redemptions are enabled
     uint256 public highWaterMark; // High water mark of the vault for performance fees
     uint256 public backingBalance; // Backing assets held as backing for open PUTs
-    uint256 public investedAssets; // Total assets managed by the vault    
-    
+    uint256 public investedAssets; // Total assets managed by the vault
 
     uint256 public nextPositionId;
-    mapping(uint256 => Position) public positions; // positionId -> position
-    mapping(address => uint256[]) public positionsOf; // user -> positionsIds
+    mapping(address => Position) public positions;
 
     /* ========================================================================
     * =============================== Events ================================
@@ -79,6 +76,7 @@ contract StakVault is ERC4626, Ownable {
     error InvalidDecimals(uint8 sharesDecimals, uint8 assetsDecimals);
     error InvalidVestingSchedule(uint256 currentTime, uint256 vestingStart, uint256 vestingEnd);
     error VestingAmountNotRedeemable(address user, uint256 shares, uint256 availableShares);
+    error InvalidCAller();
 
     // ========================================================================
     // =============================== Constructor ============================
@@ -188,11 +186,10 @@ contract StakVault is ERC4626, Ownable {
     /**
      * @dev Returns the ledger of the vault.
      * @param user The address to query the ledger for
-     * @return assets The assets in the ledger
-     * @return shares The shares in the ledger
+     * @return Position The ledger of the user
      */
-    function positionsOfUser(address user) public view returns (uint256[] memory) {
-        return positionsOf[user];
+    function positionsOfUser(address user) public view returns (Position memory) {
+        return positions[user];
     }
 
     /**
@@ -254,12 +251,12 @@ contract StakVault is ERC4626, Ownable {
     /**
      * @dev Override deposit to track deposits per user.
      * @param assets The assets to deposit
-     * @param receiver The receiver of the shares
-     * @return The shares
+     * @param _receiver The receiver of the shares
+     * @return shares
      */
-    function deposit(uint256 assets, address) public virtual override returns (uint256 shares) {
+    function deposit(uint256 assets, address _receiver) public virtual override returns (uint256 shares) {
         shares = super.deposit(assets, address(this));
-        
+
         if (!redeemsAtNav) {
             _invest(assets, shares);
         }
@@ -268,11 +265,11 @@ contract StakVault is ERC4626, Ownable {
     /**
      * @dev Override mint to track deposits per user.
      * @param shares The shares to mint
-     * @param receiver The receiver of the assets
-     * @return The assets
+     * @param _receiver The receiver of the assets
+     * @return assets
      */
-    function mint(uint256 shares, address receiver) public virtual override returns (uint256 assets) {
-        assets = super.mint(shares, receiver);
+    function mint(uint256 shares, address _receiver) public virtual override returns (uint256 assets) {
+        assets = super.mint(shares, address(this));
 
         if (!redeemsAtNav) {
             _invest(assets, shares);
@@ -286,15 +283,11 @@ contract StakVault is ERC4626, Ownable {
 
         backingBalance += assetAmount;
 
-        positionId = nextPositionId++;
-        positions[positionId] = Position({
-            user: msg.sender,
-            assetAmount: assetAmount,
-            shareAmount: shareAmount,
-            vestingAmount: shareAmount
-        });
-
-        positionsOf[msg.sender].push(positionId);
+        // update position
+        Position storage userPosition = positions[msg.sender];
+        userPosition.assetAmount += assetAmount;
+        userPosition.shareAmount += shareAmount;
+        userPosition.vestingAmount += shareAmount;
 
         emit StakVault__Invested(msg.sender, positionId, assetAmount, shareAmount);
     }
@@ -307,6 +300,8 @@ contract StakVault is ERC4626, Ownable {
      * @return The assets
      */
     function redeem(uint256 shares, address receiver, address user) public virtual override returns (uint256) {
+        if (_msgSender() != user) revert InvalidCAller();
+
         uint256 maxShares = maxRedeem(user);
         if (shares > maxShares) {
             revert ERC4626ExceededMaxRedeem(user, shares, maxShares);
@@ -314,23 +309,20 @@ contract StakVault is ERC4626, Ownable {
 
         uint256 assets = _previewRedeem(shares, user);
 
-        if (!_redeemsAtNav) {
+        if (!redeemsAtNav) {
             uint256 availableShares = redeemableShares(user);
 
             if (shares > availableShares) {
                 revert VestingAmountNotRedeemable(user, shares, availableShares);
             }
 
-            // Update the ledger
-            _ledger[user].assets -= assets;
-            _ledger[user].shares -= shares;
-
-            if (block.timestamp < _VESTING_START) {
-                _ledger[user].vesting -= shares;
-            }
+            Position storage userPosition = positions[user];
+            userPosition.assetAmount -= assets;
+            userPosition.shareAmount -= availableShares;
+            userPosition.vestingAmount -= availableShares;
         }
 
-        _withdraw(_msgSender(), receiver, user, assets, shares);
+        _withdraw(_msgSender(), receiver, address(this), assets, shares);
 
         return assets;
     }
@@ -343,6 +335,8 @@ contract StakVault is ERC4626, Ownable {
      * @return The shares
      */
     function withdraw(uint256 assets, address receiver, address user) public virtual override returns (uint256) {
+        if (_msgSender() != user) revert InvalidCAller();
+
         uint256 maxAssets = maxWithdraw(user);
         if (assets > maxAssets) {
             revert ERC4626ExceededMaxWithdraw(user, assets, maxAssets);
@@ -350,23 +344,20 @@ contract StakVault is ERC4626, Ownable {
 
         uint256 shares = _previewWithdraw(assets, user);
 
-        if (!_redeemsAtNav) {
+        if (!redeemsAtNav) {
             uint256 availableShares = redeemableShares(user);
 
             if (shares > availableShares) {
                 revert VestingAmountNotRedeemable(user, shares, availableShares);
             }
 
-            // Update the ledger
-            _ledger[user].assets -= assets;
-            _ledger[user].shares -= shares;
-
-            if (block.timestamp < _VESTING_START) {
-                _ledger[user].vesting -= shares;
-            }
+            Position storage userPosition = positions[user];
+            userPosition.assetAmount -= assets;
+            userPosition.shareAmount -= availableShares;
+            userPosition.vestingAmount -= availableShares;
         }
 
-        _withdraw(_msgSender(), receiver, user, assets, shares);
+        _transfer(address(this), receiver, shares);
 
         return shares;
     }
@@ -403,7 +394,7 @@ contract StakVault is ERC4626, Ownable {
      */
     function _previewWithdraw(uint256 assets, address user) private view returns (uint256) {
         uint256 shares = _convertToShares(assets, Math.Rounding.Ceil);
-        if (_redeemsAtNav) return shares;
+        if (redeemsAtNav) return shares;
         return Math.min(shares, _convertToShares(assets, user, Math.Rounding.Ceil));
     }
 
@@ -417,7 +408,7 @@ contract StakVault is ERC4626, Ownable {
      */
     function _previewRedeem(uint256 shares, address user) private view returns (uint256) {
         uint256 assets = _convertToAssets(shares, Math.Rounding.Floor);
-        if (_redeemsAtNav) return assets;
+        if (redeemsAtNav) return assets;
         return Math.min(assets, _convertToAssets(shares, user, Math.Rounding.Floor));
     }
 
@@ -429,13 +420,13 @@ contract StakVault is ERC4626, Ownable {
      * @return The shares
      */
     function _convertToShares(uint256 assets, address user, Math.Rounding rounding) private view returns (uint256) {
-        if (assets == 0) return 0;
+        uint256 totalVestingShares = positions[user].vestingAmount;
+        uint256 totalAssetAmount = positions[user].assetAmount;
 
-        uint256 userShares = _ledger[user].shares;
-        uint256 userAssets = _ledger[user].assets;
-
-        if (userShares == 0 || userAssets == 0) return 0;
-        return assets.mulDiv(userShares, userAssets, rounding);
+        if (assets == 0 || totalVestingShares == 0 || totalAssetAmount == 0) {
+            return _convertToShares(assets, rounding);
+        }
+        return assets.mulDiv(totalVestingShares, totalAssetAmount, rounding);
     }
 
     /**
@@ -446,13 +437,18 @@ contract StakVault is ERC4626, Ownable {
      * @return The assets
      */
     function _convertToAssets(uint256 shares, address user, Math.Rounding rounding) private view returns (uint256) {
-        if (shares == 0) return 0;
+        uint256 totalVestingShares = positions[user].vestingAmount;
+        uint256 totalAssetAmount = positions[user].assetAmount;
 
-        uint256 userShares = _ledger[user].shares;
-        uint256 userAssets = _ledger[user].assets;
+        if (shares == 0 || totalVestingShares == 0 || totalAssetAmount == 0) {
+            return _convertToAssets(shares, rounding);
+        }
+        return shares.mulDiv(totalAssetAmount, totalVestingShares, rounding);
+    }
 
-        if (userShares == 0 || userAssets == 0) return 0;
-        return shares.mulDiv(userAssets, userShares, rounding);
+    function _burnVestingShares(address user, uint256 sharesToBurn) internal {
+        Position storage userPosition = positions[user];
+        userPosition.vestingAmount -= sharesToBurn;
     }
 
     /* ========================================================================
@@ -466,13 +462,13 @@ contract StakVault is ERC4626, Ownable {
     function _calculatePerformanceFee() internal returns (uint256 performanceFee) {
         uint256 pricePerShare = _convertToAssets(10 ** decimals(), Math.Rounding.Ceil);
 
-        if (pricePerShare > _highWaterMark) {
-            uint256 profitPerShare = pricePerShare - _highWaterMark;
+        if (pricePerShare > highWaterMark) {
+            uint256 profitPerShare = pricePerShare - highWaterMark;
 
             uint256 profit = profitPerShare.mulDiv(totalSupply(), 10 ** decimals(), Math.Rounding.Ceil);
             performanceFee = profit.mulDiv(_PERFORMANCE_RATE, BPS, Math.Rounding.Ceil);
 
-            _highWaterMark = pricePerShare;
+            highWaterMark = pricePerShare;
         }
     }
 
